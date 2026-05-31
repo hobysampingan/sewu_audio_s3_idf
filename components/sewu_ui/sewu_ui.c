@@ -49,47 +49,61 @@ static const char *TAG = "sewu_ui";
 #define CONTENT_Y   HDR_H
 #define CONTENT_H   (TFT_HEIGHT - HDR_H - FTR_H)
 
-/* HOME PAGE: LEFT PANEL - FULL HEIGHT INPUT LEVELS (2 WIDE BARS) + VOLUME */
+/* HOME PAGE: LEFT PANEL - FULL HEIGHT L/R INPUT LEVELS + VOLUME HORIZONTAL */
 #define LEFT_PANEL_X      4
 #define LEFT_PANEL_W      155
 #define LEFT_PANEL_Y      CONTENT_Y
 #define LEFT_PANEL_H      CONTENT_H
 
-/* Visualizer-style input level bars - 2 WIDE BARS (L and R) */
-#define INPUT_VIZ_BAR_WIDTH         18
-#define INPUT_VIZ_SPACING           12
-#define INPUT_VIZ_TOP               (LEFT_PANEL_Y + 20)
-#define INPUT_VIZ_HEIGHT            (CONTENT_H - 60)
+/* Three items side by side: L bar, R bar, Volume bar - ramping & lebih panjang */
+#define LEFT_ITEM_W       38             /* width per item (lebih ramping) */
+#define LEFT_ITEM_SPACE   10             /* space between items */
+#define LEFT_ITEMS_TOTAL  (LEFT_ITEM_W * 3 + LEFT_ITEM_SPACE * 2)
+#define LEFT_ITEMS_OFFSET ((LEFT_PANEL_W - LEFT_ITEMS_TOTAL) / 2)
 
-/* L and R bars - centered as a pair in the left panel */
-#define INPUT_VIZ_PAIR_WIDTH        (INPUT_VIZ_BAR_WIDTH * 2 + INPUT_VIZ_SPACING)
-#define INPUT_VIZ_PAIR_OFFSET       ((LEFT_PANEL_W - INPUT_VIZ_PAIR_WIDTH) / 2)
-#define INPUT_L_X                   (LEFT_PANEL_X + INPUT_VIZ_PAIR_OFFSET)
-#define INPUT_R_X                   (LEFT_PANEL_X + INPUT_VIZ_PAIR_OFFSET + INPUT_VIZ_BAR_WIDTH + INPUT_VIZ_SPACING)
+/* L bar position - mulai dari header sampai footer */
+#define INPUT_L_X         (LEFT_PANEL_X + LEFT_ITEMS_OFFSET)
+#define INPUT_VIZ_BAR_W   36             /* lebih ramping */
+#define INPUT_VIZ_TOP     (LEFT_PANEL_Y + 2)
+#define INPUT_VIZ_H       (CONTENT_H - 12)  /* full height panel */
 
-/* Volume section at bottom - compact and aligned with visualizer */
-#define VOL_SECTION_Y       (LEFT_PANEL_Y + CONTENT_H - 30)
-#define VOL_BAR_W           110
-#define VOL_CENTER_X        (LEFT_PANEL_X + LEFT_PANEL_W / 2)
+/* R bar position */
+#define INPUT_R_X         (INPUT_L_X + LEFT_ITEM_W + LEFT_ITEM_SPACE)
 
-/* Right panel: Preset, Limiter, EQ bars */
+/* Volume bar position (rightmost item) */
+#define VOL_X             (INPUT_R_X + LEFT_ITEM_W + LEFT_ITEM_SPACE)
+#define VOL_BAR_W         36
+#define VOL_SECTION_Y     INPUT_VIZ_TOP
+
+/* Right panel: Preset, Limiter, DSP Bypass, Host Vol, EQ bars */
 #define RIGHT_PANEL_X     161
 #define RIGHT_PANEL_W     155
 #define RIGHT_PANEL_Y     CONTENT_Y
 #define RIGHT_PANEL_H     CONTENT_H
 
-/* Preset & Limiter section */
-#define PRESET_SEC_Y      (RIGHT_PANEL_Y + 4)
-#define PRESET_SEC_H      50
+/* Status section - PRESET, LIMITER, DSP BYP (inline) */
+#define PRESET_SEC_Y      (RIGHT_PANEL_Y + 2)
+#define STATUS_LABEL_X    (RIGHT_PANEL_X + 8)
+#define STATUS_VAL_X      (RIGHT_PANEL_X + 80)
 
-/* EQ section - compact vertical bars */
-#define EQ_SEC_Y          (PRESET_SEC_Y + PRESET_SEC_H + 8)
-#define EQ_SEC_H          130
+#define PRESET_ROW_Y      (PRESET_SEC_Y + 2)
+#define LIMIT_ROW_Y       (PRESET_ROW_Y + 14)
+#define DSPBP_ROW_Y       (LIMIT_ROW_Y + 14)
+#define STATUS_SEC_H      (DSPBP_ROW_Y + 14 - PRESET_SEC_Y + 4)  /* ~44 */
+
+/* EQ section + HOST VOL bar (6 bar sejajar) - full height */
+#define EQ_SEC_Y          (PRESET_SEC_Y + STATUS_SEC_H + 2)
+#define EQ_SEC_H          120                /* more height */
 
 #define EQ_BAR_W          14
-#define EQ_BAR_H          80
+#define EQ_BAR_H          110               /* much taller */
 #define EQ_CENTER_X       (RIGHT_PANEL_X + RIGHT_PANEL_W / 2)
-#define EQ_BAR_SPACING    22
+
+/* 6 bar evenly spread in 155px panel */
+#define EQ_BAR_SPACING    10
+#define EQ_TOTAL_BARS     6
+#define EQ_TOTAL_W        (EQ_TOTAL_BARS * EQ_BAR_W + (EQ_TOTAL_BARS - 1) * EQ_BAR_SPACING)
+#define EQ_START_X        (EQ_CENTER_X - EQ_TOTAL_W / 2)
 
 /* Settings page: Compact item rows */
 #define SET_VISIBLE     6
@@ -311,19 +325,16 @@ static void draw_home_layout(void) {
     /* Divider */
     gfx_fill_rect(0, HDR_H - 1, TFT_WIDTH, 1, C_BORDER);
     
-    /* LEFT PANEL: FULL HEIGHT - INPUT LEVELS (2 WIDE BARS) + VOLUME AT BOTTOM */
+    /* LEFT PANEL: L/R INPUT BARS + VOLUME SIDE BY SIDE (full height) */
     gfx_fill_rect(LEFT_PANEL_X - 1, LEFT_PANEL_Y - 1, LEFT_PANEL_W + 2, LEFT_PANEL_H + 2, C_SURFACE_ALT);
     gfx_draw_rect(LEFT_PANEL_X - 1, LEFT_PANEL_Y - 1, LEFT_PANEL_W + 2, LEFT_PANEL_H + 2, C_BORDER);
     
-     /* Input levels title */
-     gfx_fill_rect(LEFT_PANEL_X + 2, INPUT_VIZ_TOP - 16, LEFT_PANEL_W - 4, 13, C_SURFACE_ALT);
-     gfx_draw_text(LEFT_PANEL_X + LEFT_PANEL_W / 2 - 12, INPUT_VIZ_TOP - 14, "INPUT", C_TEXT_SECONDARY, C_SURFACE_ALT);
-     
-     /* L and R labels */
-     gfx_draw_text(INPUT_L_X + 6, INPUT_VIZ_TOP + INPUT_VIZ_HEIGHT + 6, "L", C_TEXT_SECONDARY, C_SURFACE_ALT);
-     gfx_draw_text(INPUT_R_X + 6, INPUT_VIZ_TOP + INPUT_VIZ_HEIGHT + 6, "R", C_TEXT_SECONDARY, C_SURFACE_ALT);
+    /* Labels di atas bar */
+    gfx_draw_text(INPUT_L_X + 6, INPUT_VIZ_TOP - 12, "L", C_TEXT_SECONDARY, C_SURFACE_ALT);
+    gfx_draw_text(INPUT_R_X + 6, INPUT_VIZ_TOP - 12, "R", C_TEXT_SECONDARY, C_SURFACE_ALT);
+    gfx_draw_text(VOL_X + 4, INPUT_VIZ_TOP - 12, "VOL", C_TEXT_SECONDARY, C_SURFACE_ALT);
     
-    /* RIGHT PANEL: Preset, Limiter, EQ */
+    /* RIGHT PANEL: Preset, Limiter, DSP Bypass, Host Vol, EQ */
     gfx_fill_rect(RIGHT_PANEL_X - 1, RIGHT_PANEL_Y - 1, RIGHT_PANEL_W + 2, RIGHT_PANEL_H + 2, C_SURFACE);
     gfx_draw_rect(RIGHT_PANEL_X - 1, RIGHT_PANEL_Y - 1, RIGHT_PANEL_W + 2, RIGHT_PANEL_H + 2, C_BORDER);
     
@@ -341,6 +352,7 @@ static void update_home_values(void) {
     static int s_hv_volume = -1;
     static int s_hv_preset = -1;
     static int s_hv_limiter = -1;
+    static bool s_hv_dsp_bypass = false;
     static int s_hv_eq[5] = {-1, -1, -1, -1, -1};
     
     bool force = s_home_values_dirty;
@@ -357,8 +369,8 @@ static void update_home_values(void) {
          s_hv_vu_l = vu_l;
          s_hv_vu_l_pk = vu_l_pk;
          
-         /* Draw L channel bar (WIDE) */
-         draw_input_viz_bar(INPUT_L_X, INPUT_VIZ_TOP, INPUT_VIZ_BAR_WIDTH, INPUT_VIZ_HEIGHT,
+         /* Draw L channel bar */
+         draw_input_viz_bar(INPUT_L_X, INPUT_VIZ_TOP, INPUT_VIZ_BAR_W, INPUT_VIZ_H,
                            vu_l, vu_l_pk, C_SPECTRUM_LOW, C_SPECTRUM_MID, C_SPECTRUM_HIGH);
      }
      
@@ -366,50 +378,60 @@ static void update_home_values(void) {
          s_hv_vu_r = vu_r;
          s_hv_vu_r_pk = vu_r_pk;
          
-         /* Draw R channel bar (WIDE) */
-         draw_input_viz_bar(INPUT_R_X, INPUT_VIZ_TOP, INPUT_VIZ_BAR_WIDTH, INPUT_VIZ_HEIGHT,
+         /* Draw R channel bar */
+         draw_input_viz_bar(INPUT_R_X, INPUT_VIZ_TOP, INPUT_VIZ_BAR_W, INPUT_VIZ_H,
                            vu_r, vu_r_pk, C_SPECTRUM_LOW, C_SPECTRUM_MID, C_SPECTRUM_HIGH);
      }
      
-     /* ===== UPDATE VOLUME (LEFT PANEL - BOTTOM, COMPACT) ===== */
+     /* ===== UPDATE VOLUME (VERTICAL BAR IN RIGHT POSITION OF LEFT PANEL) ===== */
      
      int vol = g_sewu_state.volume_percent;
      if (force || vol != s_hv_volume) {
          s_hv_volume = vol;
          
-         /* Clear volume display area */
-         gfx_fill_rect(LEFT_PANEL_X + (LEFT_PANEL_W - VOL_BAR_W) / 2, VOL_SECTION_Y, VOL_BAR_W, 26, C_SURFACE_ALT);
+         /* Draw volume as vertical bar (similar style to L/R bars) */
+         draw_input_viz_bar(VOL_X, VOL_SECTION_Y, INPUT_VIZ_BAR_W, INPUT_VIZ_H,
+                           vol, 0, C_ACCENT_CYAN, C_ACCENT_CYAN, C_ACCENT_CYAN);
          
-         /* Draw volume bar (horizontal, centered) */
-         int bar_y = VOL_SECTION_Y + 4;
-         draw_mini_slider(LEFT_PANEL_X + (LEFT_PANEL_W - VOL_BAR_W) / 2, bar_y, VOL_BAR_W, 6, vol, C_ACCENT_CYAN);
-         
-         /* Draw volume percentage text below bar - no label, just percentage */
+         /* Draw volume percentage text below */
          char vol_str[16];
          snprintf(vol_str, sizeof(vol_str), "%d%%", vol);
-         gfx_draw_text(LEFT_PANEL_X + (LEFT_PANEL_W / 2) - 12, bar_y + 18, vol_str, C_TEXT_PRIMARY, C_SURFACE_ALT);
+         gfx_draw_text(VOL_X + 6, VOL_SECTION_Y + INPUT_VIZ_H + 6, vol_str, C_TEXT_PRIMARY, C_SURFACE_ALT);
      }
     
-    /* ===== RIGHT PANEL: PRESET & LIMITER ===== */
+    /* ===== RIGHT PANEL: PRESET (inline) ===== */
     
     int pre = g_sewu_state.preset_index;
-    int lim = g_sewu_state.limiter_enabled ? 1 : 0;
     if (force || pre != s_hv_preset) {
         s_hv_preset = pre;
-        gfx_fill_rect(RIGHT_PANEL_X + 4, PRESET_SEC_Y + 4, RIGHT_PANEL_W - 8, 20, C_SURFACE);
-        gfx_draw_text(RIGHT_PANEL_X + 8, PRESET_SEC_Y + 6, "PRESET", C_TEXT_SECONDARY, C_SURFACE);
-        gfx_draw_text(RIGHT_PANEL_X + 8, PRESET_SEC_Y + 18, preset_label(pre), C_ACCENT_GOLD, C_SURFACE);
+        gfx_fill_rect(STATUS_LABEL_X, PRESET_ROW_Y, STATUS_VAL_X - STATUS_LABEL_X + 40, 14, C_SURFACE);
+        gfx_draw_text(STATUS_LABEL_X, PRESET_ROW_Y, "PRESET:", C_TEXT_SECONDARY, C_SURFACE);
+        gfx_draw_text(STATUS_VAL_X, PRESET_ROW_Y, preset_label(pre), C_ACCENT_GOLD, C_SURFACE);
     }
     
+    /* ===== RIGHT PANEL: LIMITER (inline) ===== */
+    
+    int lim = g_sewu_state.limiter_enabled ? 1 : 0;
     if (force || lim != s_hv_limiter) {
         s_hv_limiter = lim;
-        gfx_fill_rect(RIGHT_PANEL_X + 4, PRESET_SEC_Y + 28, RIGHT_PANEL_W - 8, 16, C_SURFACE);
-        gfx_draw_text(RIGHT_PANEL_X + 8, PRESET_SEC_Y + 30, "LIMITER:", C_TEXT_SECONDARY, C_SURFACE);
+        gfx_fill_rect(STATUS_LABEL_X, LIMIT_ROW_Y, STATUS_VAL_X - STATUS_LABEL_X + 40, 14, C_SURFACE);
+        gfx_draw_text(STATUS_LABEL_X, LIMIT_ROW_Y, "LIMITER:", C_TEXT_SECONDARY, C_SURFACE);
         uint16_t lim_color = lim ? C_STATUS_OK : C_TEXT_SECONDARY;
-        gfx_draw_text(RIGHT_PANEL_X + 90, PRESET_SEC_Y + 30, lim ? "ON" : "OFF", lim_color, C_SURFACE);
+        gfx_draw_text(STATUS_VAL_X, LIMIT_ROW_Y, lim ? "ON" : "OFF", lim_color, C_SURFACE);
     }
     
-    /* ===== RIGHT PANEL: EQ BARS WITH VALUES ===== */
+    /* ===== RIGHT PANEL: DSP BYPASS (inline) ===== */
+    
+    bool bypass = g_sewu_state.dsp_bypass;
+    if (force || bypass != s_hv_dsp_bypass) {
+        s_hv_dsp_bypass = bypass;
+        gfx_fill_rect(STATUS_LABEL_X, DSPBP_ROW_Y, STATUS_VAL_X - STATUS_LABEL_X + 40, 14, C_SURFACE);
+        gfx_draw_text(STATUS_LABEL_X, DSPBP_ROW_Y, "DSP BYP:", C_TEXT_SECONDARY, C_SURFACE);
+        uint16_t bp_color = bypass ? C_STATUS_WARN : C_TEXT_SECONDARY;
+        gfx_draw_text(STATUS_VAL_X, DSPBP_ROW_Y, bypass ? "ON" : "OFF", bp_color, C_SURFACE);
+    }
+    
+    /* ===== RIGHT PANEL: 6 BAR SEJAJAR (5 EQ + 1 HOST VOL) ===== */
     
     int eq_vals[5] = {
         g_sewu_state.bass_db,
@@ -424,20 +446,48 @@ static void update_home_values(void) {
         if (eq_vals[i] != s_hv_eq[i]) eq_changed = true;
     }
     
-    if (eq_changed) {
-        gfx_fill_rect(RIGHT_PANEL_X + 4, EQ_SEC_Y + 4, RIGHT_PANEL_W - 8, 108, C_SURFACE);
-        gfx_draw_text(RIGHT_PANEL_X + 8, EQ_SEC_Y + 6, "EQ RESPONSE", C_TEXT_SECONDARY, C_SURFACE);
+    static int s_hv_host_vol = -1;
+    int host_vol = g_sewu_state.usb_host_volume_percent;
+    bool host_changed = force || (host_vol != s_hv_host_vol);
+    
+    if (eq_changed || host_changed) {
+        /* Title */
+        gfx_fill_rect(RIGHT_PANEL_X + 4, EQ_SEC_Y + 4, RIGHT_PANEL_W - 8, CONTENT_Y + CONTENT_H - EQ_SEC_Y - 8, C_SURFACE);
+        gfx_draw_text(RIGHT_PANEL_X + 8, EQ_SEC_Y + 6, "EQ/HOST VOL", C_TEXT_SECONDARY, C_SURFACE);
         
         uint16_t eq_colors[] = {C_SPECTRUM_LOW, C_SPECTRUM_MID, C_ACCENT_GOLD, C_SPECTRUM_MID, C_SPECTRUM_HIGH};
         
-        int bar_start_x = EQ_CENTER_X - (EQ_BAR_SPACING * 2);
-        int bar_start_y = EQ_SEC_Y + 26;
+        int bar_start_y = EQ_SEC_Y + 20;
+        int max_h = CONTENT_Y + CONTENT_H - 8 - EQ_SEC_Y - 20 - 18; /* full height sampai footer */
+        if (max_h < 30) max_h = 30;
+        int y_bottom = bar_start_y + max_h;
         
+        /* Draw 5 EQ bars */
         for (int i = 0; i < 5; i++) {
-            int bar_x = bar_start_x + i * EQ_BAR_SPACING;
-            draw_eq_bar_with_value(bar_x, bar_start_y, EQ_BAR_H, 50, eq_vals[i], eq_colors[i]);
+            int bar_x = EQ_START_X + i * (EQ_BAR_W + EQ_BAR_SPACING);
+            draw_eq_bar_with_value(bar_x, bar_start_y, EQ_BAR_H, max_h, eq_vals[i], eq_colors[i]);
             s_hv_eq[i] = eq_vals[i];
         }
+        
+        /* Draw 6th bar: HOST VOL */
+        int hv_x = EQ_START_X + 5 * (EQ_BAR_W + EQ_BAR_SPACING);
+        s_hv_host_vol = host_vol;
+        
+        /* Bersihkan area + border */
+        gfx_draw_rect(hv_x - 1, bar_start_y - 1, EQ_BAR_W + 2, max_h + 2, C_BORDER);
+        gfx_fill_rect(hv_x, bar_start_y, EQ_BAR_W, max_h, C_SURFACE_ALT);
+        
+        /* Fill from bottom (0-100 scale) */
+        int fill_h = (host_vol * max_h) / 100;
+        if (fill_h > 0) {
+            int fill_y = bar_start_y + max_h - fill_h;
+            gfx_fill_rect(hv_x + 1, fill_y, EQ_BAR_W - 2, fill_h, C_ACCENT_CYAN);
+        }
+        
+        /* Label host vol value di bawah */
+        char hv_str[16];
+        snprintf(hv_str, sizeof(hv_str), "%d%%", host_vol);
+        gfx_draw_text(hv_x - 4, y_bottom + 6, hv_str, C_ACCENT_CYAN, C_BG);
     }
 }
 

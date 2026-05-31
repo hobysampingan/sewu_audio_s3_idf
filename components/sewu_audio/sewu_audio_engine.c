@@ -223,7 +223,9 @@ void sewu_audio_engine_update(void) {
             g_sewu_state.active_source = SOURCE_TONE;
         }
 
-        sewu_dsp_process_frame(&l, &r);
+        if (!g_sewu_state.dsp_bypass) {
+            sewu_dsp_process_frame(&l, &r);
+        }
 
         float gate_target = 1.0f;
         if (g_sewu_state.standby_active) {

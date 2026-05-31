@@ -19,7 +19,13 @@ void sewu_app_state_init_defaults(void) {
     g_sewu_state.tone_enabled = false;
 
     g_sewu_state.limiter_enabled = true;
+    g_sewu_state.dsp_bypass = false;
     g_sewu_state.source_mode = 0;
+    g_sewu_state.usb_host_volume_percent = 100;
+    g_sewu_state.usb_host_muted = false;
+    g_sewu_state.prev_volume_percent = 60;
+    g_sewu_state.usb_host_volume_percent = 100;
+    g_sewu_state.usb_host_muted = false;
     g_sewu_state.active_source = 0;
     g_sewu_state.active_control_index = 0;
     g_sewu_state.preset_index = 0;

@@ -89,14 +89,22 @@ static bool s_btn2_long_consumed;
 static uint32_t s_k0_down_ms;
 static bool s_k0_long_consumed;
 
+// Double-press state: timer-based, no "awaiting" flags
+static uint32_t s_btn2_last_release_ms;
+static int     s_btn2_release_count;    // 0 = idle, 1 = first release waiting, 2 = second release (double done)
+
+static uint32_t s_k0_last_release_ms;
+static int     s_k0_release_count;
+
 static uint8_t s_last_ab;
 static int s_enc_accum;
 static portMUX_TYPE s_enc_mux = portMUX_INITIALIZER_UNLOCKED;
 
-#define ENC_LONG_MS  900U
-#define BTN2_LONG_MS 700U
-#define K0_LONG_MS   1000U
-#define K0_SAVE_MS   2500U
+#define ENC_LONG_MS    900U
+#define BTN2_LONG_MS   700U
+#define BTN2_DOUBLE_MS 400U
+#define K0_LONG_MS     1000U
+#define K0_DOUBLE_MS   400U
 
 static const int8_t ENC_TRANSITION[16] = {
     0, -1, 1, 0,
@@ -121,8 +129,8 @@ static void IRAM_ATTR encoder_isr_handler(void* arg) {
 static int read_encoder_step(void) {
     portENTER_CRITICAL(&s_enc_mux);
     int accum = s_enc_accum;
-    int step = accum / 4;              // ✅ 4 transisi = 1 step EC11
-    s_enc_accum = accum % 4;           // Keep remainder untuk akumulasi berikutnya
+    int step = accum / 4;
+    s_enc_accum = accum % 4;
     portEXIT_CRITICAL(&s_enc_mux);
     return step;
 }
@@ -284,10 +292,56 @@ static void execute_action(int cursor) {
     }
 }
 
+/* ========== Single-click helpers ========== */
+static void do_btn2_single_click(void) {
+    int current_page = g_sewu_state.ui_page;
+    if (current_page == 1) {
+        int cur = g_sewu_state.ui_settings_cursor;
+        if (is_action_item(cur)) {
+            execute_action(cur);
+        } else if (g_sewu_state.ui_settings_editing) {
+            g_sewu_state.ui_settings_editing = false;
+        } else {
+            g_sewu_state.ui_settings_editing = true;
+        }
+    } else if (current_page == 2) {
+        g_sewu_state.ui_page = 0;
+    } else {
+        int next = g_sewu_state.preset_index + 1;
+        if (next >= PRESET_COUNT) next = 0;
+        apply_preset_index(next);
+    }
+    g_sewu_state.last_input_ms = (uint32_t)esp_log_timestamp();
+}
+
+static void do_btn2_double_click(void) {
+    // Toggle mute: if volume > 0 save & mute, else restore
+    if (g_sewu_state.volume_percent > 0) {
+        g_sewu_state.prev_volume_percent = g_sewu_state.volume_percent;
+        g_sewu_state.volume_percent = 0;
+    } else {
+        g_sewu_state.volume_percent = g_sewu_state.prev_volume_percent;
+    }
+    ESP_LOGI(TAG, "BTN2 double: volume %d%%", g_sewu_state.volume_percent);
+    g_sewu_state.last_input_ms = (uint32_t)esp_log_timestamp();
+}
+
+static void do_k0_single_click(void) {
+    g_sewu_state.source_mode = (g_sewu_state.source_mode == 0) ? 1 : 0;
+    g_sewu_state.tone_enabled = false;
+    g_sewu_state.last_input_ms = (uint32_t)esp_log_timestamp();
+}
+
+static void do_k0_double_click(void) {
+    g_sewu_state.dsp_bypass = !g_sewu_state.dsp_bypass;
+    ESP_LOGI(TAG, "K0 double: DSP bypass %s",
+             g_sewu_state.dsp_bypass ? "ON" : "OFF");
+    g_sewu_state.last_input_ms = (uint32_t)esp_log_timestamp();
+}
+
 /* ---------- Public API ---------- */
 
 void sewu_input_init(void) {
-    // 1. Configure polled buttons (SW, K0, BTN2)
     gpio_config_t in_cfg = {
         .pin_bit_mask = (1ULL << SEWU_PIN_ENC_SW) |
                         (1ULL << SEWU_PIN_KEY_K0) |
@@ -299,7 +353,6 @@ void sewu_input_init(void) {
     };
     gpio_config(&in_cfg);
 
-    // 2. Configure interrupt-driven encoder pins (ENC_A, ENC_B)
     gpio_config_t enc_cfg = {
         .pin_bit_mask = (1ULL << SEWU_PIN_ENC_A) | (1ULL << SEWU_PIN_ENC_B),
         .mode = GPIO_MODE_INPUT,
@@ -309,12 +362,10 @@ void sewu_input_init(void) {
     };
     gpio_config(&enc_cfg);
 
-    // 3. Read initial encoder pin state
     int a = gpio_get_level(SEWU_PIN_ENC_A) ? 1 : 0;
     int b = gpio_get_level(SEWU_PIN_ENC_B) ? 1 : 0;
     s_last_ab = (uint8_t)((a << 1) | b);
 
-    // 4. Install and register ISR handler
     esp_err_t err = gpio_install_isr_service(0);
     if (err == ESP_OK || err == ESP_ERR_INVALID_STATE) {
         gpio_isr_handler_add(SEWU_PIN_ENC_A, encoder_isr_handler, (void*)SEWU_PIN_ENC_A);
@@ -340,148 +391,150 @@ void sewu_input_update(void) {
     int step = read_encoder_step();
     if (step != 0) {
         if (current_page == 1) {
-            /* Settings Page */
             if (g_sewu_state.ui_settings_editing) {
-                /* Edit mode: adjust the selected item's value */
                 apply_settings_delta(g_sewu_state.ui_settings_cursor, step);
             } else {
-                /* Navigation mode: move cursor up/down */
                 int c = g_sewu_state.ui_settings_cursor + step;
                 g_sewu_state.ui_settings_cursor = clamp_int(c, 0, SET_COUNT - 1);
             }
         } else if (current_page == 2) {
-            /* Visualizer: encoder = cycle visualizer mode (0=BAR,1=PEAK,2=WAVE,3=MIRROR) */
             int mode = g_sewu_state.visualizer_mode + step;
             while (mode < 0) mode += 4;
             while (mode > 3) mode -= 4;
             g_sewu_state.visualizer_mode = mode;
         } else {
-            /* HOME (0) and LOG (3): encoder = volume */
             g_sewu_state.volume_percent = clamp_int(g_sewu_state.volume_percent + step, 0, 100);
         }
         g_sewu_state.last_input_ms = now;
     }
 
     /* ---- Encoder switch (SW) ---- */
-    bool sw_now = gpio_get_level(SEWU_PIN_ENC_SW) ? true : false;
+    {
+        bool sw_now = gpio_get_level(SEWU_PIN_ENC_SW) ? true : false;
 
-    /* Falling edge: button pressed */
-    if (s_last_sw && !sw_now) {
-        s_sw_down_ms = now;
-        s_sw_long_consumed = false;
-    }
-
-    /* While held: check for long press */
-    if (!sw_now && !s_sw_long_consumed && (now - s_sw_down_ms >= ENC_LONG_MS)) {
-        s_sw_long_consumed = true;
-        if (current_page == 1 || current_page == 2 || current_page == 3) {
-            /* Settings/Visualizer/Log: go back to HOME */
-            g_sewu_state.ui_settings_editing = false;
-            g_sewu_state.ui_page = 0;
-        } else {
-            /* HOME: encoder long press → enter LOG page (3) */
-            g_sewu_state.ui_settings_cursor = 0;
-            g_sewu_state.ui_settings_editing = false;
-            g_sewu_state.ui_page = 3;
+        if (s_last_sw && !sw_now) {
+            s_sw_down_ms = now;
+            s_sw_long_consumed = false;
         }
-        g_sewu_state.last_input_ms = now;
-    }
 
-    /* Rising edge: button released (short press) */
-    if (!s_last_sw && sw_now && !s_sw_long_consumed) {
-        if (current_page == 1) {
-            int cur = g_sewu_state.ui_settings_cursor;
-            if (is_action_item(cur)) {
-                /* Action items execute immediately */
-                execute_action(cur);
-            } else if (g_sewu_state.ui_settings_editing) {
-                /* Confirm: exit edit mode */
+        if (!sw_now && !s_sw_long_consumed && (now - s_sw_down_ms >= ENC_LONG_MS)) {
+            s_sw_long_consumed = true;
+            if (current_page == 1 || current_page == 2 || current_page == 3) {
                 g_sewu_state.ui_settings_editing = false;
+                g_sewu_state.ui_page = 0;
             } else {
-                /* Enter edit mode */
-                g_sewu_state.ui_settings_editing = true;
+                g_sewu_state.ui_settings_cursor = 0;
+                g_sewu_state.ui_settings_editing = false;
+                g_sewu_state.ui_page = 3;
             }
-        } else {
-            /* HOME or VISUALIZER short press: toggle limiter (does NOT dirty preset) */
-            g_sewu_state.limiter_enabled = !g_sewu_state.limiter_enabled;
+            g_sewu_state.last_input_ms = now;
         }
-        g_sewu_state.last_input_ms = now;
-    }
-    s_last_sw = sw_now;
 
-    /* ---- BTN2 (panel "BTN1") — mirrors encoder switch for settings nav ---- */
-    bool btn2_now = gpio_get_level(SEWU_PIN_BTN2) ? true : false;
-
-    if (s_last_btn2 && !btn2_now) {
-        s_btn2_down_ms = now;
-        s_btn2_long_consumed = false;
-    }
-
-    /* Long press BTN2 */
-    if (!btn2_now && !s_btn2_long_consumed && (now - s_btn2_down_ms >= BTN2_LONG_MS)) {
-        s_btn2_long_consumed = true;
-        if (current_page == 1 || current_page == 2 || current_page == 3) {
-            /* Settings / Visualizer / Log: long press → back to HOME */
-            g_sewu_state.ui_settings_editing = false;
-            g_sewu_state.ui_page = 0;
-        } else {
-            /* HOME: long press → enter SETTINGS */
-            g_sewu_state.ui_settings_cursor = 0;
-            g_sewu_state.ui_settings_editing = false;
-            g_sewu_state.ui_page = 1;
-        }
-        g_sewu_state.last_input_ms = now;
-    }
-
-    /* Short press BTN2 */
-    if (!s_last_btn2 && btn2_now && !s_btn2_long_consumed) {
-        if (current_page == 1) {
-            /* Settings: short press = enter / confirm edit (same as ENC SW) */
-            int cur = g_sewu_state.ui_settings_cursor;
-            if (is_action_item(cur)) {
-                execute_action(cur);         /* SAVE USR1/USR2 / RST STATS   */
-            } else if (g_sewu_state.ui_settings_editing) {
-                g_sewu_state.ui_settings_editing = false; /* confirm edit    */
+        if (!s_last_sw && sw_now && !s_sw_long_consumed) {
+            if (current_page == 1) {
+                int cur = g_sewu_state.ui_settings_cursor;
+                if (is_action_item(cur)) {
+                    execute_action(cur);
+                } else if (g_sewu_state.ui_settings_editing) {
+                    g_sewu_state.ui_settings_editing = false;
+                } else {
+                    g_sewu_state.ui_settings_editing = true;
+                }
             } else {
-                g_sewu_state.ui_settings_editing = true;  /* enter edit mode */
+                g_sewu_state.limiter_enabled = !g_sewu_state.limiter_enabled;
             }
-        } else if (current_page == 2) {
-            /* Visualizer: short press → HOME */
-            g_sewu_state.ui_page = 0;
-        } else {
-            /* HOME (0), LOG (3), etc.: BTN2 short press → next preset */
-            int next = g_sewu_state.preset_index + 1;
-            if (next >= PRESET_COUNT) next = 0;
-            apply_preset_index(next);
+            g_sewu_state.last_input_ms = now;
         }
-        g_sewu_state.last_input_ms = now;
-    }
-    s_last_btn2 = btn2_now;
-
-    /* ---- K0 ---- */
-    bool k0_now = gpio_get_level(SEWU_PIN_KEY_K0) ? true : false;
-
-    if (s_last_k0 && !k0_now) {
-        s_k0_down_ms = now;
-        s_k0_long_consumed = false;
+        s_last_sw = sw_now;
     }
 
-    /* K0 held for long press: toggle visualizer page (Page 2) */
-    if (!k0_now && !s_k0_long_consumed && (now - s_k0_down_ms >= K0_LONG_MS)) {
-        s_k0_long_consumed = true;
-        if (current_page == 2) {
-            g_sewu_state.ui_page = 0; // exit to HOME
-        } else {
-            g_sewu_state.ui_page = 2; // enter VISUALIZER
+    /* ---- BTN2 — with double-press (release-count based) ---- */
+    {
+        bool btn2_now = gpio_get_level(SEWU_PIN_BTN2) ? true : false;
+
+        if (s_last_btn2 && !btn2_now) {
+            // Button pressed: check if it follows a previous release quickly
+            s_btn2_down_ms = now;
+            s_btn2_long_consumed = false;
+
+            if (s_btn2_release_count == 1 && (now - s_btn2_last_release_ms <= BTN2_DOUBLE_MS)) {
+                // This is the second press of a double-click
+                // Will be handled on release
+            }
         }
-        g_sewu_state.last_input_ms = now;
+
+        if (!btn2_now && !s_btn2_long_consumed && (now - s_btn2_down_ms >= BTN2_LONG_MS)) {
+            s_btn2_long_consumed = true;
+            s_btn2_release_count = 0; // cancel double sequence
+            if (current_page == 1 || current_page == 2 || current_page == 3) {
+                g_sewu_state.ui_settings_editing = false;
+                g_sewu_state.ui_page = 0;
+            } else {
+                g_sewu_state.ui_settings_cursor = 0;
+                g_sewu_state.ui_settings_editing = false;
+                g_sewu_state.ui_page = 1;
+            }
+            g_sewu_state.last_input_ms = now;
+        }
+
+        if (!s_last_btn2 && btn2_now && !s_btn2_long_consumed) {
+            // Button released
+            if (s_btn2_release_count == 1 && (now - s_btn2_last_release_ms <= BTN2_DOUBLE_MS)) {
+                // Second release within double time = DOUBLE CLICK!
+                s_btn2_release_count = 0;
+                do_btn2_double_click();
+            } else {
+                // First release: record time, set count, wait for possible second press
+                s_btn2_last_release_ms = now;
+                s_btn2_release_count = 1;
+            }
+        }
+
+        s_last_btn2 = btn2_now;
+
+        // Check timeout: if only one release so far, execute single click
+        if (s_btn2_release_count == 1 && (now - s_btn2_last_release_ms > BTN2_DOUBLE_MS)) {
+            s_btn2_release_count = 0;
+            do_btn2_single_click();
+        }
     }
 
-    /* K0 released: short press cycles source mode (AUTO/USB only) */
-    if (!s_last_k0 && k0_now && !s_k0_long_consumed) {
-        g_sewu_state.source_mode = (g_sewu_state.source_mode == 0) ? 1 : 0;
-        g_sewu_state.tone_enabled = false;
-        g_sewu_state.last_input_ms = now;
+    /* ---- K0 — with double-press (release-count based) ---- */
+    {
+        bool k0_now = gpio_get_level(SEWU_PIN_KEY_K0) ? true : false;
+
+        if (s_last_k0 && !k0_now) {
+            s_k0_down_ms = now;
+            s_k0_long_consumed = false;
+        }
+
+        if (!k0_now && !s_k0_long_consumed && (now - s_k0_down_ms >= K0_LONG_MS)) {
+            s_k0_long_consumed = true;
+            s_k0_release_count = 0;
+            if (current_page == 2) {
+                g_sewu_state.ui_page = 0;
+            } else {
+                g_sewu_state.ui_page = 2;
+            }
+            g_sewu_state.last_input_ms = now;
+        }
+
+        if (!s_last_k0 && k0_now && !s_k0_long_consumed) {
+            if (s_k0_release_count == 1 && (now - s_k0_last_release_ms <= K0_DOUBLE_MS)) {
+                // Double click!
+                s_k0_release_count = 0;
+                do_k0_double_click();
+            } else {
+                s_k0_last_release_ms = now;
+                s_k0_release_count = 1;
+            }
+        }
+
+        s_last_k0 = k0_now;
+
+        if (s_k0_release_count == 1 && (now - s_k0_last_release_ms > K0_DOUBLE_MS)) {
+            s_k0_release_count = 0;
+            do_k0_single_click();
+        }
     }
-    s_last_k0 = k0_now;
 }

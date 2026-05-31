@@ -58,6 +58,7 @@ typedef struct {
   bool wifi_ready;
   bool usb_streaming;
   bool limiter_enabled;
+  bool dsp_bypass;
 
   int source_mode;
   int active_source;
@@ -81,6 +82,7 @@ typedef struct {
   int usb_health_percent;
   int usb_health_state;
   int usb_latency_ms;
+  int prev_volume_percent;        // menyimpan volume sebelum di-mute double-press
   int usb_host_volume_percent;
   bool usb_host_muted;
   uint32_t usb_frames_in;
