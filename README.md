@@ -29,8 +29,8 @@ Install ESP-IDF v5.3.3:
 ### 2. Clone & Setup
 
 ```bash
-git clone https://github.com/yourusername/sewu-audio-s3.git
-cd sewu-audio-s3
+git clone https://github.com/hobysampingan/sewu_audio_s3_idf
+cd sewu_audio_s3_idf
 ```
 
 ### 3. Configure
