@@ -69,7 +69,7 @@ Press `Ctrl+]` to exit monitor.
 ## Project Structure
 
 ```
-sewu-audio-s3/
+sewu_audio_s3_idf/
 ├── main/                    # Main application
 │   ├── CMakeLists.txt
 │   └── sewu_main.c
